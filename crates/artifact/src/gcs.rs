@@ -32,11 +32,24 @@ pub struct GcsArtifactClient {
 
 impl GcsArtifactClient {
     pub async fn new(bucket: String, concurrency: usize) -> Result<Self> {
+        tracing::info!("Initializing GCS client for bucket: {}", bucket);
+
+        // Check for explicit credentials
+        if let Ok(creds_path) = std::env::var("GOOGLE_APPLICATION_CREDENTIALS") {
+            tracing::info!("Using GOOGLE_APPLICATION_CREDENTIALS: {}", creds_path);
+        } else {
+            tracing::info!("No GOOGLE_APPLICATION_CREDENTIALS set, will use default credentials (Compute Engine SA or Workload Identity)");
+        }
+
         let config = ClientConfig::default()
             .with_auth()
             .await
-            .map_err(|e| anyhow!("Failed to create GCS client auth: {}", e))?;
+            .map_err(|e| {
+                tracing::error!("Failed to initialize GCS auth: {:?}", e);
+                anyhow!("Failed to create GCS client auth: {}. Ensure the pod has access to GCP metadata server or GOOGLE_APPLICATION_CREDENTIALS is set.", e)
+            })?;
 
+        tracing::info!("GCS client auth initialized successfully");
         let client = GcsClient::new(config);
 
         Ok(Self {

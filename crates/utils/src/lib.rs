@@ -2,6 +2,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use eyre::Result;
 use sp1_cluster_artifact::{
+    gcs::GcsArtifactClient,
     redis::RedisArtifactClient,
     s3::{S3ArtifactClient, S3DownloadMode},
     ArtifactClient, ArtifactType,
@@ -45,6 +46,7 @@ pub struct ProofRequest {
 pub enum ArtifactStoreConfig {
     Redis { nodes: Vec<String> },
     S3 { bucket: String, region: String },
+    Gcs { bucket: String, concurrency: usize },
 }
 
 pub enum ClusterElf {
@@ -248,6 +250,13 @@ pub async fn request_proof_with_config(
             .await;
             request_proof(artifact_client, elf, stdin, config).await
         }
+        ArtifactStoreConfig::Gcs { bucket, concurrency } => {
+            tracing::info!("using gcs artifact store");
+            let artifact_client = GcsArtifactClient::new(bucket.clone(), *concurrency)
+                .await
+                .expect("failed to create GCS artifact client");
+            request_proof(artifact_client, elf, stdin, config).await
+        }
     }
 }
 
@@ -257,21 +266,30 @@ pub fn request_config_from_env(proof_mode: ProofMode, timeout_hours: u64) -> Pro
     let redis_nodes = std::env::var("CLI_REDIS_NODES");
     let s3_bucket = std::env::var("CLI_S3_BUCKET");
     let s3_region = std::env::var("CLI_S3_REGION");
+    let gcs_bucket = std::env::var("CLI_GCS_BUCKET");
+    let gcs_concurrency = std::env::var("CLI_GCS_CONCURRENCY")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(32);
 
-    let artifact_store_config = match (redis_nodes, s3_bucket) {
-        (Ok(redis_nodes), Err(_)) => ArtifactStoreConfig::Redis {
+    let artifact_store_config = match (redis_nodes, s3_bucket, gcs_bucket) {
+        (Ok(redis_nodes), Err(_), Err(_)) => ArtifactStoreConfig::Redis {
             nodes: redis_nodes
                 .clone()
                 .split(',')
                 .map(|s| s.to_string())
                 .collect(),
         },
-        (Err(_), Ok(s3_bucket)) => ArtifactStoreConfig::S3 {
+        (Err(_), Ok(s3_bucket), Err(_)) => ArtifactStoreConfig::S3 {
             bucket: s3_bucket.clone(),
             region: s3_region.unwrap().clone(),
         },
+        (Err(_), Err(_), Ok(gcs_bucket)) => ArtifactStoreConfig::Gcs {
+            bucket: gcs_bucket.clone(),
+            concurrency: gcs_concurrency,
+        },
         _ => {
-            panic!("Exactly one of Redis nodes or S3 bucket must be specified");
+            panic!("Exactly one of Redis nodes, S3 bucket, or GCS bucket must be specified");
         }
     };
 

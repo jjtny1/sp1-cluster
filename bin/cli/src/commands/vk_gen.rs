@@ -66,7 +66,9 @@ impl BuildVkeys {
 
         let (bucket, region) = match &request_config.artifact_store {
             ArtifactStoreConfig::S3 { bucket, region } => Some((bucket.clone(), region.clone())),
-            _ => None,
+            _ => {
+                panic!("vk_gen command currently only supports S3 artifact store. Use CLI_S3_BUCKET and CLI_S3_REGION environment variables.");
+            }
         }
         .unwrap();
 
