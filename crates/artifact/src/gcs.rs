@@ -322,16 +322,20 @@ impl ArtifactClient for GcsArtifactClient {
     async fn delete(&self, artifact: &impl ArtifactId, artifact_type: ArtifactType) -> Result<()> {
         let key = Self::get_gcs_key_from_id(artifact_type, artifact.id());
 
-        self.client
+        match self
+            .client
             .delete_object(&DeleteObjectRequest {
                 bucket: self.bucket.clone(),
                 object: key,
                 ..Default::default()
             })
             .await
-            .map_err(|e| anyhow!("Failed to delete artifact: {}", e))?;
-
-        Ok(())
+        {
+            Ok(_) => Ok(()),
+            // Treat 404 as success (idempotent delete - object already gone)
+            Err(google_cloud_storage::http::Error::Response(e)) if e.code == 404 => Ok(()),
+            Err(e) => Err(anyhow!("Failed to delete artifact: {}", e)),
+        }
     }
 
     async fn delete_batch(&self, artifacts: &[impl ArtifactId], artifact_type: ArtifactType) -> Result<()> {
@@ -348,14 +352,19 @@ impl ArtifactClient for GcsArtifactClient {
             let key = Self::get_gcs_key_from_id(artifact_type, artifact.id());
 
             set.spawn(async move {
-                client
+                match client
                     .delete_object(&DeleteObjectRequest {
                         bucket,
                         object: key,
                         ..Default::default()
                     })
                     .await
-                    .map_err(|e| anyhow!("Failed to delete artifact: {}", e))
+                {
+                    Ok(_) => Ok(()),
+                    // Treat 404 as success (idempotent delete - object already gone)
+                    Err(google_cloud_storage::http::Error::Response(e)) if e.code == 404 => Ok(()),
+                    Err(e) => Err(anyhow!("Failed to delete artifact: {}", e)),
+                }
             });
         }
 
