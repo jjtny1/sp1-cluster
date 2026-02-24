@@ -53,12 +53,23 @@ cpu-node:
     NODE_COORDINATOR_RPC: http://coordinator-grpc:50051
     # Set this based on how many GB of RAM is available.
     WORKER_MAX_WEIGHT_OVERRIDE: "32"
+    # Artifact Storage Options:
+    # Option 1: Redis (default, fast but memory-intensive)
     NODE_ARTIFACT_STORE: redis
     NODE_REDIS_NODES:
       valueFrom:
         secretKeyRef:
           name: cluster-secrets
           key: REDIS_NODES
+    # Option 2: GCS (recommended for large proofs, unlimited storage)
+    # NODE_ARTIFACT_STORE: gcs
+    # NODE_GCS_BUCKET: your-sp1-artifacts-bucket
+    # NODE_GCS_CONCURRENCY: "32"
+    # Option 3: S3 (similar to GCS, for AWS)
+    # NODE_ARTIFACT_STORE: s3
+    # NODE_S3_BUCKET: your-sp1-artifacts-bucket
+    # NODE_S3_REGION: us-east-1
+    # NODE_S3_CONCURRENCY: "32"
   resources:
     # At least 32 GB of RAM is necessary for Plonk.
     requests:
@@ -83,12 +94,15 @@ gpu-node:
     NODE_COORDINATOR_RPC: http://coordinator-grpc:50051
     # Set this based on how many GB of normal RAM is available.
     WORKER_MAX_WEIGHT_OVERRIDE: "24"
+    # Artifact Storage Options (same as cpu-node):
     NODE_ARTIFACT_STORE: redis
     NODE_REDIS_NODES:
       valueFrom:
         secretKeyRef:
           name: cluster-secrets
           key: REDIS_NODES
+    # For GCS: NODE_ARTIFACT_STORE: gcs, NODE_GCS_BUCKET: your-bucket
+    # For S3: NODE_ARTIFACT_STORE: s3, NODE_S3_BUCKET: your-bucket, NODE_S3_REGION: us-east-1
   resources:
     requests:
       # Each GPU pod should have at least 16GB RAM and as many cores as possible.

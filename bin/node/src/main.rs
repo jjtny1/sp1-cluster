@@ -7,6 +7,7 @@ use pyroscope::pyroscope::PyroscopeAgentRunning;
 use pyroscope::PyroscopeAgent;
 use pyroscope_pprofrs::{pprof_backend, PprofConfig};
 use rand::Rng;
+use sp1_cluster_artifact::gcs::GcsArtifactClient;
 use sp1_cluster_artifact::redis::RedisArtifactClient;
 use sp1_cluster_artifact::s3::S3ArtifactClient;
 use sp1_cluster_artifact::s3::S3DownloadMode;
@@ -120,49 +121,85 @@ async fn main() -> Result<()> {
     })
     .unwrap();
 
-    if std::env::var("NODE_ARTIFACT_STORE").unwrap_or("s3".to_string()) == "s3" {
-        eprintln!("using s3 artifact store");
-        let region = std::env::var("NODE_S3_REGION").expect("NODE_S3_REGION is not set");
-        let artifact_client = S3ArtifactClient::new(
-            region.clone(),
-            std::env::var("NODE_S3_BUCKET").expect("NODE_S3_BUCKET is not set"),
-            std::env::var("NODE_S3_CONCURRENCY")
-                .map(|s| s.parse().unwrap_or(32))
-                .unwrap_or(32),
-            S3DownloadMode::AwsSDK(S3ArtifactClient::create_s3_sdk_download_client(region).await),
-        )
-        .await;
-        cfg_if! {
-            if #[cfg(feature = "gpu")] {
-                sp1_gpu_cudart::spawn(move |t| async move { run_worker(shutting_down, shutdown_rx, Some(metrics), artifact_client, t.clone()).await.unwrap(); })
-                    .await
-                    .unwrap();
-            } else {
-                run_worker(shutting_down, shutdown_rx, Some(metrics), artifact_client).await?;
+    match std::env::var("NODE_ARTIFACT_STORE")
+        .unwrap_or("s3".to_string())
+        .to_lowercase()
+        .as_str()
+    {
+        "s3" => {
+            eprintln!("using s3 artifact store");
+            let region = std::env::var("NODE_S3_REGION").expect("NODE_S3_REGION is not set");
+            let artifact_client = S3ArtifactClient::new(
+                region.clone(),
+                std::env::var("NODE_S3_BUCKET").expect("NODE_S3_BUCKET is not set"),
+                std::env::var("NODE_S3_CONCURRENCY")
+                    .map(|s| s.parse().unwrap_or(32))
+                    .unwrap_or(32),
+                S3DownloadMode::AwsSDK(
+                    S3ArtifactClient::create_s3_sdk_download_client(region).await,
+                ),
+            )
+            .await;
+            cfg_if! {
+                if #[cfg(feature = "gpu")] {
+                    sp1_gpu_cudart::spawn(move |t| async move { run_worker(shutting_down, shutdown_rx, Some(metrics), artifact_client, t.clone()).await.unwrap(); })
+                        .await
+                        .unwrap();
+                } else {
+                    run_worker(shutting_down, shutdown_rx, Some(metrics), artifact_client).await?;
+                }
             }
         }
-    } else {
-        eprintln!("using redis artifact store");
-        let artifact_client = RedisArtifactClient::new(
-            std::env::var("NODE_REDIS_NODES")
-                .expect("NODE_REDIS_NODES is not set")
-                .split(',')
-                .map(|s| s.to_string())
-                .collect(),
-            std::env::var("NODE_REDIS_POOL_MAX_SIZE")
-                .unwrap_or("16".to_string())
-                .parse()
-                .unwrap(),
-        );
-        eprintln!("redis is set up");
-        cfg_if! {
-            if #[cfg(feature = "gpu")] {
-                sp1_gpu_cudart::spawn(move |t| async move { run_worker(shutting_down, shutdown_rx, Some(metrics), artifact_client, t.clone()).await.unwrap(); })
-                    .await
-                    .unwrap();
-            } else {
-                run_worker(shutting_down, shutdown_rx, Some(metrics), artifact_client).await?;
+        "gcs" => {
+            eprintln!("using gcs artifact store");
+            let artifact_client = GcsArtifactClient::new(
+                std::env::var("NODE_GCS_BUCKET").expect("NODE_GCS_BUCKET is not set"),
+                std::env::var("NODE_GCS_CONCURRENCY")
+                    .map(|s| s.parse().unwrap_or(32))
+                    .unwrap_or(32),
+            )
+            .await
+            .expect("failed to create GCS artifact client");
+            eprintln!("gcs artifact client is set up");
+            cfg_if! {
+                if #[cfg(feature = "gpu")] {
+                    sp1_gpu_cudart::spawn(move |t| async move { run_worker(shutting_down, shutdown_rx, Some(metrics), artifact_client, t.clone()).await.unwrap(); })
+                        .await
+                        .unwrap();
+                } else {
+                    run_worker(shutting_down, shutdown_rx, Some(metrics), artifact_client).await?;
+                }
             }
+        }
+        "redis" => {
+            eprintln!("using redis artifact store");
+            let artifact_client = RedisArtifactClient::new(
+                std::env::var("NODE_REDIS_NODES")
+                    .expect("NODE_REDIS_NODES is not set")
+                    .split(',')
+                    .map(|s| s.to_string())
+                    .collect(),
+                std::env::var("NODE_REDIS_POOL_MAX_SIZE")
+                    .unwrap_or("16".to_string())
+                    .parse()
+                    .unwrap(),
+            );
+            eprintln!("redis is set up");
+            cfg_if! {
+                if #[cfg(feature = "gpu")] {
+                    sp1_gpu_cudart::spawn(move |t| async move { run_worker(shutting_down, shutdown_rx, Some(metrics), artifact_client, t.clone()).await.unwrap(); })
+                        .await
+                        .unwrap();
+                } else {
+                    run_worker(shutting_down, shutdown_rx, Some(metrics), artifact_client).await?;
+                }
+            }
+        }
+        store => {
+            panic!(
+                "Unknown NODE_ARTIFACT_STORE: {}. Valid options: s3, gcs, redis",
+                store
+            );
         }
     };
 

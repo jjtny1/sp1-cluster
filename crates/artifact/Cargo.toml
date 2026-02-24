@@ -20,6 +20,7 @@ backoff.workspace = true
 bincode.workspace = true
 bytes.workspace = true
 deadpool-redis.workspace = true
+google-cloud-storage = "0.22"
 lazy_static.workspace = true
 mti.workspace = true
 reqwest.workspace = true
@@ -27,5 +28,8 @@ serde.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 zstd.workspace = true
+
+[dev-dependencies]
+uuid = { version = "1.0", features = ["v4"] }
 
 [build-dependencies]
