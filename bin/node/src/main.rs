@@ -84,7 +84,7 @@ type ActiveTask = (TaskData, JoinHandle<()>, Instant);
 
 /// To prevent stuck tasks from accumulating due to any deadlock bug or similar issue, tasks will be
 /// killed after running for 6 hours.
-const TASK_TIMEOUT: Duration = Duration::from_secs(6 * 60 * 60);
+const TASK_TIMEOUT: Duration = Duration::from_secs(168 * 60 * 60);
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> Result<()> {
